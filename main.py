@@ -99,6 +99,14 @@ class GrafoApp:
         self.text_resultados.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar_resultados.config(command=self.text_resultados.yview)
     
+    def validar_numero(self, texto):
+        """Valida que el texto sea un número entero no negativo o vacío"""
+        if texto == "":
+            return True
+        if texto.isdigit():
+            return True
+        return False
+    
     def crear_tabla(self):
         # Limpiar tabla anterior
         for widget in self.frame_tabla.winfo_children():
@@ -107,13 +115,16 @@ class GrafoApp:
         
         n = self.num_nodos.get()
         
+        # Registrar la función de validación
+        vcmd = (self.root.register(self.validar_numero), '%P')
+        
         # Etiquetas de columnas
         ttk.Label(self.frame_tabla, text="", width=3).grid(row=0, column=0, padx=2, pady=2)
         for j in range(n):
             ttk.Label(self.frame_tabla, text=str(j), width=5, 
                      font=('Arial', 9, 'bold')).grid(row=0, column=j+1, padx=2, pady=2)
         
-        # Crear entradas
+        # Crear entradas con validación
         for i in range(n):
             # Etiqueta de fila
             ttk.Label(self.frame_tabla, text=str(i), width=3, 
@@ -121,7 +132,8 @@ class GrafoApp:
             
             fila = []
             for j in range(n):
-                entry = ttk.Entry(self.frame_tabla, width=6, justify=tk.CENTER)
+                entry = ttk.Entry(self.frame_tabla, width=6, justify=tk.CENTER,
+                                validate='key', validatecommand=vcmd)
                 entry.insert(0, "0")
                 entry.grid(row=i+1, column=j+1, padx=2, pady=2)
                 fila.append(entry)
