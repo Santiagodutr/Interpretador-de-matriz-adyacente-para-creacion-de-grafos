@@ -1,186 +1,334 @@
-# Nueva versión basada en tu código de Jupyter, adaptada a Tkinter y matplotlib
 import tkinter as tk
 from tkinter import ttk, messagebox
-import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-
-class MatrizAdyacencia:
-    def __init__(self, parent, n):
-        self.parent = parent
-        self.n = n
-        self.entries = []
-        self.frame = ttk.Frame(parent)
-        self.crear_tabla(n)
-
-    def crear_tabla(self, n):
-        for widget in self.frame.winfo_children():
-            widget.destroy()
-        self.entries = []
-        for i in range(n):
-            fila = []
-            for j in range(n):
-                entry = ttk.Entry(self.frame, width=4, justify='center')
-                entry.grid(row=i, column=j, padx=2, pady=2)
-                entry.insert(0, "0")
-                fila.append(entry)
-            self.entries.append(fila)
-
-    def get_matriz(self):
-        matriz = np.zeros((self.n, self.n), dtype=int)
-        for i in range(self.n):
-            for j in range(self.n):
-                val = self.entries[i][j].get()
-                try:
-                    v = int(val)
-                    if v < 0:
-                        raise ValueError
-                    matriz[i, j] = v
-                except:
-                    return None
-        return matriz
-
-    def set_size(self, n):
-        self.n = n
-        self.crear_tabla(n)
+import numpy as np
 
 class GrafoApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Interpretador de Matriz de Adyacencia")
-        self.root.geometry("1000x700")
-
-        self.nodos = tk.IntVar(value=4)
-        self.dirigido = tk.BooleanVar(value=False)
-
-        self.frame_top = ttk.Frame(root)
-        self.frame_top.pack(fill=tk.X, padx=10, pady=10)
-
-        ttk.Label(self.frame_top, text="Nodos:").pack(side=tk.LEFT)
-        self.spin_nodos = ttk.Spinbox(self.frame_top, from_=2, to=10, textvariable=self.nodos, width=5, command=self.actualizar_tabla)
-        self.spin_nodos.pack(side=tk.LEFT, padx=5)
-
-        self.check_dirigido = ttk.Checkbutton(self.frame_top, text="Dirigido", variable=self.dirigido)
-        self.check_dirigido.pack(side=tk.LEFT, padx=10)
-
-        self.boton_procesar = ttk.Button(self.frame_top, text="Procesar grafo", command=self.procesar_grafo)
-        self.boton_procesar.pack(side=tk.LEFT, padx=10)
-
-        self.frame_matriz = ttk.LabelFrame(root, text="Matriz de Adyacencia")
-        self.frame_matriz.pack(fill=tk.X, padx=10, pady=10)
-
-        self.matriz_widget = MatrizAdyacencia(self.frame_matriz, self.nodos.get())
-        self.matriz_widget.frame.pack()
-
-        self.frame_resultados = ttk.Notebook(root)
-        self.frame_resultados.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-        self.tab_grafico = ttk.Frame(self.frame_resultados)
-        self.tab_texto = ttk.Frame(self.frame_resultados)
-        self.frame_resultados.add(self.tab_grafico, text="Gráfico")
-        self.frame_resultados.add(self.tab_texto, text="Resultados")
-
-        self.text_resultados = tk.Text(self.tab_texto, wrap=tk.WORD, font=("Consolas", 11))
-        self.text_resultados.pack(fill=tk.BOTH, expand=True)
-
-        self.canvas_grafico = None
-
-    def actualizar_tabla(self):
-        n = self.nodos.get()
-        self.matriz_widget.set_size(n)
-
-    def procesar_grafo(self):
-        matriz = self.matriz_widget.get_matriz()
-        if matriz is None:
-            messagebox.showerror("Error", "La matriz contiene valores inválidos o negativos.")
-            return
-        dirigido = self.dirigido.get()
-        if dirigido:
-            G = nx.DiGraph()
+        self.root.title("Interpretador de Matriz Adyacente para Grafos")
+        self.root.geometry("1200x700")
+        
+        # Variables
+        self.num_nodos = tk.IntVar(value=4)
+        self.es_dirigido = tk.BooleanVar(value=False)
+        self.entries = []
+        self.G = None
+        
+        # Crear interfaz
+        self.crear_interfaz()
+        self.crear_tabla()
+    
+    def crear_interfaz(self):
+        # Frame superior para controles
+        frame_control = ttk.Frame(self.root, padding="10")
+        frame_control.pack(side=tk.TOP, fill=tk.X)
+        
+        # Control de número de nodos
+        ttk.Label(frame_control, text="Número de nodos:").pack(side=tk.LEFT, padx=5)
+        spinbox = ttk.Spinbox(frame_control, from_=2, to=10, textvariable=self.num_nodos, 
+                              width=10, command=self.crear_tabla)
+        spinbox.pack(side=tk.LEFT, padx=5)
+        
+        # Checkbox para grafo dirigido
+        ttk.Checkbutton(frame_control, text="Grafo Dirigido", 
+                       variable=self.es_dirigido).pack(side=tk.LEFT, padx=20)
+        
+        # Botón procesar
+        ttk.Button(frame_control, text="Procesar Grafo", 
+                  command=self.procesar_grafo).pack(side=tk.LEFT, padx=20)
+        
+        # Botón limpiar
+        ttk.Button(frame_control, text="Limpiar Matriz", 
+                  command=self.limpiar_matriz).pack(side=tk.LEFT, padx=5)
+        
+        # Frame principal dividido
+        frame_principal = ttk.Frame(self.root)
+        frame_principal.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Frame izquierdo para la tabla
+        frame_izquierdo = ttk.Frame(frame_principal)
+        frame_izquierdo.pack(side=tk.LEFT, fill=tk.BOTH, padx=5)
+        
+        ttk.Label(frame_izquierdo, text="Matriz de Adyacencia:", 
+                 font=('Arial', 10, 'bold')).pack(pady=5)
+        
+        # Canvas con scrollbar para la tabla
+        canvas_frame = ttk.Frame(frame_izquierdo)
+        canvas_frame.pack(fill=tk.BOTH, expand=True)
+        
+        self.canvas_tabla = tk.Canvas(canvas_frame, width=350, height=350)
+        scrollbar_y = ttk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=self.canvas_tabla.yview)
+        scrollbar_x = ttk.Scrollbar(canvas_frame, orient=tk.HORIZONTAL, command=self.canvas_tabla.xview)
+        
+        self.frame_tabla = ttk.Frame(self.canvas_tabla)
+        self.canvas_tabla.create_window((0, 0), window=self.frame_tabla, anchor=tk.NW)
+        
+        self.canvas_tabla.configure(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
+        
+        scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
+        scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
+        self.canvas_tabla.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # Frame derecho dividido en grafo y resultados
+        frame_derecho = ttk.Frame(frame_principal)
+        frame_derecho.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
+        
+        # Frame para el grafo
+        frame_grafo = ttk.LabelFrame(frame_derecho, text="Visualización del Grafo", padding="5")
+        frame_grafo.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=5)
+        
+        self.figure = plt.Figure(figsize=(6, 4), dpi=100)
+        self.ax = self.figure.add_subplot(111)
+        self.canvas_grafo = FigureCanvasTkAgg(self.figure, frame_grafo)
+        self.canvas_grafo.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        # Frame para resultados
+        frame_resultados = ttk.LabelFrame(frame_derecho, text="Resultados - Algoritmo de Dijkstra", padding="5")
+        frame_resultados.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=5)
+        
+        # Text widget con scrollbar para resultados
+        scrollbar_resultados = ttk.Scrollbar(frame_resultados)
+        scrollbar_resultados.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.text_resultados = tk.Text(frame_resultados, height=10, width=50, 
+                                       yscrollcommand=scrollbar_resultados.set,
+                                       font=('Courier', 9))
+        self.text_resultados.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar_resultados.config(command=self.text_resultados.yview)
+    
+    def crear_tabla(self):
+        # Limpiar tabla anterior
+        for widget in self.frame_tabla.winfo_children():
+            widget.destroy()
+        self.entries = []
+        
+        n = self.num_nodos.get()
+        
+        # Etiquetas de columnas
+        ttk.Label(self.frame_tabla, text="", width=3).grid(row=0, column=0, padx=2, pady=2)
+        for j in range(n):
+            ttk.Label(self.frame_tabla, text=str(j), width=5, 
+                     font=('Arial', 9, 'bold')).grid(row=0, column=j+1, padx=2, pady=2)
+        
+        # Crear entradas
+        for i in range(n):
+            # Etiqueta de fila
+            ttk.Label(self.frame_tabla, text=str(i), width=3, 
+                     font=('Arial', 9, 'bold')).grid(row=i+1, column=0, padx=2, pady=2)
+            
+            fila = []
+            for j in range(n):
+                entry = ttk.Entry(self.frame_tabla, width=6, justify=tk.CENTER)
+                entry.insert(0, "0")
+                entry.grid(row=i+1, column=j+1, padx=2, pady=2)
+                fila.append(entry)
+            self.entries.append(fila)
+        
+        # Actualizar el canvas
+        self.frame_tabla.update_idletasks()
+        self.canvas_tabla.configure(scrollregion=self.canvas_tabla.bbox("all"))
+    
+    def limpiar_matriz(self):
+        for fila in self.entries:
+            for entry in fila:
+                entry.delete(0, tk.END)
+                entry.insert(0, "0")
+    
+    def obtener_matriz(self):
+        n = self.num_nodos.get()
+        matriz = np.zeros((n, n), dtype=int)
+        
+        try:
+            for i in range(n):
+                for j in range(n):
+                    valor = int(self.entries[i][j].get())
+                    if valor < 0:
+                        raise ValueError("Los pesos deben ser >= 0")
+                    matriz[i, j] = valor
+            return matriz
+        except ValueError as e:
+            messagebox.showerror("Error", f"Error en la matriz: {e}")
+            return None
+    
+    def graficar_grafo(self, matriz):
+        self.ax.clear()
+        
+        if self.es_dirigido.get():
+            self.G = nx.DiGraph()
         else:
-            G = nx.Graph()
+            self.G = nx.Graph()
+        
         n = len(matriz)
         for i in range(n):
             for j in range(n):
                 peso = matriz[i, j]
                 if peso != 0:
-                    if dirigido or i <= j:
-                        G.add_edge(i, j, weight=peso)
-        self.mostrar_grafico(G, dirigido)
-        self.mostrar_resultados(G, matriz)
-
-    def mostrar_grafico(self, G, dirigido):
-        if self.canvas_grafico:
-            self.canvas_grafico.get_tk_widget().destroy()
-        fig, ax = plt.subplots(figsize=(7, 5))
-        pos = nx.spring_layout(G, seed=42)
-        nx.draw(G, pos, with_labels=True, node_color='lightcoral', node_size=600, font_size=12, font_weight='bold', ax=ax)
-        edge_labels = nx.get_edge_attributes(G, 'weight')
-        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, ax=ax)
-        titulo = "Grafo Dirigido" if dirigido else "Grafo No Dirigido"
-        ax.set_title(titulo)
-        ax.axis('off')
-        self.canvas_grafico = FigureCanvasTkAgg(fig, master=self.tab_grafico)
-        self.canvas_grafico.draw()
-        self.canvas_grafico.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-        plt.close(fig)
-
-    def dijkstra(self, G, inicio):
-        distancias = {nodo: float('inf') for nodo in G.nodes}
+                    if self.es_dirigido.get() or i <= j:
+                        self.G.add_edge(i, j, weight=peso)
+        
+        if len(self.G.nodes) == 0:
+            self.ax.text(0.5, 0.5, 'Grafo vacío', ha='center', va='center', 
+                        transform=self.ax.transAxes, fontsize=14)
+            self.canvas_grafo.draw()
+            return
+        
+        pos = nx.spring_layout(self.G, seed=42)
+        
+        # Configurar flechas solo para grafos dirigidos
+        if self.es_dirigido.get():
+            # Dibujar nodos
+            nx.draw_networkx_nodes(self.G, pos, ax=self.ax, 
+                                  node_color='lightcoral', node_size=600)
+            nx.draw_networkx_labels(self.G, pos, ax=self.ax, 
+                                   font_size=12, font_weight='bold')
+            
+            # Detectar aristas bidireccionales
+            aristas_simples = []
+            aristas_bidireccionales = []
+            edge_labels_dict = {}
+            
+            for (u, v, data) in self.G.edges(data=True):
+                if self.G.has_edge(v, u) and u < v:  # Bidireccional
+                    aristas_bidireccionales.append((u, v))
+                    aristas_bidireccionales.append((v, u))
+                elif not self.G.has_edge(v, u):  # Simple
+                    aristas_simples.append((u, v))
+                    edge_labels_dict[(u, v)] = data['weight']
+                elif u < v:  # Ya procesada como bidireccional
+                    edge_labels_dict[(u, v)] = self.G[u][v]['weight']
+                    edge_labels_dict[(v, u)] = self.G[v][u]['weight']
+            
+            # Dibujar aristas simples (sin curva)
+            if aristas_simples:
+                nx.draw_networkx_edges(self.G, pos, ax=self.ax,
+                                      edgelist=aristas_simples,
+                                      edge_color='gray',
+                                      arrows=True,
+                                      arrowsize=20,
+                                      arrowstyle='->',
+                                      connectionstyle='arc3,rad=0')
+            
+            # Dibujar aristas bidireccionales (con curva)
+            if aristas_bidireccionales:
+                nx.draw_networkx_edges(self.G, pos, ax=self.ax,
+                                      edgelist=aristas_bidireccionales,
+                                      edge_color='gray',
+                                      arrows=True,
+                                      arrowsize=20,
+                                      arrowstyle='->',
+                                      connectionstyle='arc3,rad=0.3')
+            
+            # Dibujar etiquetas de pesos
+            edge_labels = nx.get_edge_attributes(self.G, 'weight')
+            nx.draw_networkx_edge_labels(self.G, pos, edge_labels=edge_labels, 
+                                        ax=self.ax, font_size=9,
+                                        bbox=dict(boxstyle="round,pad=0.3", 
+                                                facecolor='white', 
+                                                edgecolor='none', 
+                                                alpha=0.7))
+        else:
+            nx.draw(self.G, pos, ax=self.ax, with_labels=True, 
+                   node_color='lightcoral', node_size=600, 
+                   font_size=12, font_weight='bold', arrows=False,
+                   edge_color='gray')
+            
+            edge_labels = nx.get_edge_attributes(self.G, 'weight')
+            nx.draw_networkx_edge_labels(self.G, pos, edge_labels=edge_labels, ax=self.ax)
+        
+        titulo = "Grafo Dirigido" if self.es_dirigido.get() else "Grafo No Dirigido"
+        self.ax.set_title(titulo, fontsize=12, fontweight='bold')
+        self.ax.axis('off')
+        
+        self.canvas_grafo.draw()
+    
+    def dijkstra(self, inicio):
+        if self.G is None or len(self.G.nodes) == 0:
+            return None, None
+        
+        distancias = {nodo: float('inf') for nodo in self.G.nodes}
         distancias[inicio] = 0
         visitados = set()
-        previos = {nodo: None for nodo in G.nodes}
-        while len(visitados) < len(G.nodes):
-            nodos_no_visitados = {n: distancias[n] for n in G.nodes if n not in visitados}
+        previos = {nodo: None for nodo in self.G.nodes}
+        
+        while len(visitados) < len(self.G.nodes):
+            nodos_no_visitados = {n: distancias[n] for n in self.G.nodes if n not in visitados}
             if not nodos_no_visitados:
                 break
             actual = min(nodos_no_visitados, key=nodos_no_visitados.get)
             visitados.add(actual)
-            for vecino in G.neighbors(actual):
-                peso = G[actual][vecino]['weight']
+            
+            for vecino in self.G.neighbors(actual):
+                peso = self.G[actual][vecino]['weight']
                 if distancias[actual] + peso < distancias[vecino]:
                     distancias[vecino] = distancias[actual] + peso
                     previos[vecino] = actual
+        
         return distancias, previos
-
-    def mostrar_caminos(self, previos, inicio):
-        resultados = []
-        for nodo in previos:
+    
+    def mostrar_resultados(self, distancias, previos, inicio):
+        self.text_resultados.delete(1.0, tk.END)
+        
+        if distancias is None:
+            self.text_resultados.insert(tk.END, "No hay nodos en el grafo\n")
+            return
+        
+        self.text_resultados.insert(tk.END, f"╔═══════════════════════════════════════════╗\n")
+        self.text_resultados.insert(tk.END, f"║  ALGORITMO DE DIJKSTRA - Nodo inicial: {inicio}  ║\n")
+        self.text_resultados.insert(tk.END, f"╚═══════════════════════════════════════════╝\n\n")
+        
+        self.text_resultados.insert(tk.END, "DISTANCIAS MÍNIMAS:\n")
+        self.text_resultados.insert(tk.END, "─" * 45 + "\n")
+        for nodo in sorted(distancias.keys()):
+            distancia = distancias[nodo]
+            if distancia == float('inf'):
+                self.text_resultados.insert(tk.END, f"  Nodo {nodo}: ∞ (No alcanzable)\n")
+            else:
+                self.text_resultados.insert(tk.END, f"  Nodo {nodo}: {distancia}\n")
+        
+        self.text_resultados.insert(tk.END, "\n" + "─" * 45 + "\n")
+        self.text_resultados.insert(tk.END, "CAMINOS MÁS CORTOS:\n")
+        self.text_resultados.insert(tk.END, "─" * 45 + "\n")
+        
+        for nodo in sorted(previos.keys()):
             if nodo == inicio:
                 continue
+            
             path = []
             actual = nodo
             while actual is not None:
                 path.append(actual)
                 actual = previos[actual]
             path.reverse()
+            
             if len(path) == 1 and path[0] != inicio:
-                resultados.append(f"No hay camino al nodo {nodo}")
+                self.text_resultados.insert(tk.END, f"  Nodo {nodo}: No hay camino\n")
             else:
-                resultados.append(f"Camino a {nodo}: {' -> '.join(map(str, path))}")
-        return resultados
-
-    def mostrar_resultados(self, G, matriz):
-        self.text_resultados.delete(1.0, tk.END)
-        inicio = 0
-        if inicio not in G.nodes:
-            self.text_resultados.insert(tk.END, "Nodo inicial no válido\n")
+                camino_str = ' → '.join(map(str, path))
+                self.text_resultados.insert(tk.END, f"  Nodo {nodo}: {camino_str}\n")
+    
+    def procesar_grafo(self):
+        matriz = self.obtener_matriz()
+        if matriz is None:
             return
-        distancias, previos = self.dijkstra(G, inicio)
-        self.text_resultados.insert(tk.END, f"Distancias mínimas desde el nodo {inicio}:\n")
-        for nodo, distancia in distancias.items():
-            self.text_resultados.insert(tk.END, f" Nodo {nodo}: {distancia}\n")
-        self.text_resultados.insert(tk.END, "\nCaminos más cortos:\n")
-        caminos = self.mostrar_caminos(previos, inicio)
-        for c in caminos:
-            self.text_resultados.insert(tk.END, c + "\n")
+        
+        self.graficar_grafo(matriz)
+        
+        if self.G is None or len(self.G.nodes) == 0:
+            self.text_resultados.delete(1.0, tk.END)
+            self.text_resultados.insert(tk.END, "El grafo está vacío. Agregue conexiones con pesos > 0")
+            return
+        
+        inicio = 0  # Nodo inicial fijo
+        distancias, previos = self.dijkstra(inicio)
+        self.mostrar_resultados(distancias, previos, inicio)
 
 def main():
     root = tk.Tk()
     app = GrafoApp(root)
     root.mainloop()
-
 
 if __name__ == "__main__":
     main()
