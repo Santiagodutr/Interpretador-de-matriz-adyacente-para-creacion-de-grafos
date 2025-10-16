@@ -185,21 +185,19 @@ class GrafoApp:
             nx.draw_networkx_labels(self.G, pos, ax=self.ax, 
                                    font_size=12, font_weight='bold')
             
-            # Detectar aristas bidireccionales
+            # Detectar aristas bidireccionales y bucles
             aristas_simples = []
             aristas_bidireccionales = []
-            edge_labels_dict = {}
+            bucles = []
             
             for (u, v, data) in self.G.edges(data=True):
-                if self.G.has_edge(v, u) and u < v:  # Bidireccional
+                if u == v:  # Bucle (self-loop)
+                    bucles.append((u, v))
+                elif self.G.has_edge(v, u) and u < v:  # Bidireccional
                     aristas_bidireccionales.append((u, v))
                     aristas_bidireccionales.append((v, u))
                 elif not self.G.has_edge(v, u):  # Simple
                     aristas_simples.append((u, v))
-                    edge_labels_dict[(u, v)] = data['weight']
-                elif u < v:  # Ya procesada como bidireccional
-                    edge_labels_dict[(u, v)] = self.G[u][v]['weight']
-                    edge_labels_dict[(v, u)] = self.G[v][u]['weight']
             
             # Dibujar aristas simples (sin curva)
             if aristas_simples:
@@ -221,14 +219,64 @@ class GrafoApp:
                                       arrowstyle='->',
                                       connectionstyle='arc3,rad=0.3')
             
-            # Dibujar etiquetas de pesos
+            # Dibujar bucles (self-loops)
+            if bucles:
+                nx.draw_networkx_edges(self.G, pos, ax=self.ax,
+                                      edgelist=bucles,
+                                      edge_color='gray',
+                                      arrows=True,
+                                      arrowsize=20,
+                                      arrowstyle='->',
+                                      connectionstyle='arc3,rad=2.5',
+                                      min_source_margin=15,
+                                      min_target_margin=15)
+            
+            # Dibujar etiquetas de pesos con posiciones ajustadas
             edge_labels = nx.get_edge_attributes(self.G, 'weight')
-            nx.draw_networkx_edge_labels(self.G, pos, edge_labels=edge_labels, 
-                                        ax=self.ax, font_size=9,
-                                        bbox=dict(boxstyle="round,pad=0.3", 
-                                                facecolor='white', 
-                                                edgecolor='none', 
-                                                alpha=0.7))
+            
+            # Para aristas bidireccionales, ajustar posición de etiquetas
+            label_pos = {}
+            for edge, weight in edge_labels.items():
+                u, v = edge
+                if u == v:  # Bucle
+                    # Posicionar etiqueta arriba del nodo
+                    x, y = pos[u]
+                    label_pos[edge] = (x, y + 0.15)
+                elif self.G.has_edge(v, u) and u != v:  # Bidireccional
+                    # Calcular posición desplazada para la etiqueta
+                    x1, y1 = pos[u]
+                    x2, y2 = pos[v]
+                    # Vector perpendicular
+                    dx = x2 - x1
+                    dy = y2 - y1
+                    length = np.sqrt(dx**2 + dy**2)
+                    if length > 0:
+                        # Perpendicular normalizado
+                        px = -dy / length
+                        py = dx / length
+                        # Desplazar etiqueta
+                        offset = 0.08
+                        label_x = (x1 + x2) / 2 + px * offset
+                        label_y = (y1 + y2) / 2 + py * offset
+                        label_pos[edge] = (label_x, label_y)
+                    else:
+                        label_pos[edge] = ((x1 + x2) / 2, (y1 + y2) / 2)
+                else:  # Arista simple
+                    x1, y1 = pos[u]
+                    x2, y2 = pos[v]
+                    label_pos[edge] = ((x1 + x2) / 2, (y1 + y2) / 2)
+            
+            # Dibujar etiquetas
+            for edge, weight in edge_labels.items():
+                x, y = label_pos[edge]
+                self.ax.text(x, y, str(weight), 
+                           fontsize=9, 
+                           ha='center', 
+                           va='center',
+                           bbox=dict(boxstyle="round,pad=0.3", 
+                                   facecolor='white', 
+                                   edgecolor='none', 
+                                   alpha=0.8))
         else:
             nx.draw(self.G, pos, ax=self.ax, with_labels=True, 
                    node_color='lightcoral', node_size=600, 
