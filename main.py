@@ -331,10 +331,21 @@ class GrafoApp:
     def mostrar_resultados(self, distancias, previos, inicio):
         self.text_resultados.delete(1.0, tk.END)
         
+        
         if distancias is None:
             self.text_resultados.insert(tk.END, "No hay nodos en el grafo\n")
             return
         
+
+                # Representación matemática del grafo
+        nodos = sorted(self.G.nodes)
+        aristas = sorted(self.G.edges)
+
+        representacion = "V = { " + ', '.join(str(n) for n in nodos) + " }\n"
+        representacion += "A = { " + ', '.join(f"({u},{v})" for u, v in aristas) + " }\n\n"
+
+        self.text_resultados.insert(tk.END, representacion)
+
         self.text_resultados.insert(tk.END, f"╔═══════════════════════════════════════════╗\n")
         self.text_resultados.insert(tk.END, f"║  ALGORITMO DE DIJKSTRA - Nodo inicial: {inicio}  ║\n")
         self.text_resultados.insert(tk.END, f"╚═══════════════════════════════════════════╝\n\n")
@@ -348,26 +359,54 @@ class GrafoApp:
             else:
                 self.text_resultados.insert(tk.END, f"  Nodo {nodo}: {distancia}\n")
         
-        self.text_resultados.insert(tk.END, "\n" + "─" * 45 + "\n")
-        self.text_resultados.insert(tk.END, "CAMINOS MÁS CORTOS:\n")
-        self.text_resultados.insert(tk.END, "─" * 45 + "\n")
-        
-        for nodo in sorted(previos.keys()):
-            if nodo == inicio:
-                continue
-            
-            path = []
-            actual = nodo
-            while actual is not None:
-                path.append(actual)
-                actual = previos[actual]
-            path.reverse()
-            
-            if len(path) == 1 and path[0] != inicio:
-                self.text_resultados.insert(tk.END, f"  Nodo {nodo}: No hay camino\n")
+                # Evidencias del concepto de camino, ciclo y nodos adyacentes
+        self.text_resultados.insert(tk.END, "\n" + "═" * 45 + "\n")
+        self.text_resultados.insert(tk.END, "EVIDENCIAS DE CONCEPTOS:\n")
+        self.text_resultados.insert(tk.END, "═" * 45 + "\n")
+
+        # Caminos desde el nodo inicial
+        self.text_resultados.insert(tk.END, "● Caminos desde el nodo inicial (0):\n")
+        for destino in sorted(distancias.keys()):
+            if destino != inicio:
+                if distancias[destino] < float('inf'):
+                    path = []
+                    actual = destino
+                    while actual is not None:
+                        path.append(actual)
+                        actual = previos[actual]
+                    path.reverse()
+                    camino_str = ' → '.join(map(str, path))
+                    self.text_resultados.insert(tk.END, f"   - A {destino}: {camino_str}\n")
+                else:
+                    self.text_resultados.insert(tk.END, f"   - A {destino}: No alcanzable\n")
+
+        # Ciclos en el grafo
+        if self.es_dirigido.get():
+            ciclos = list(nx.simple_cycles(self.G))
+        else:
+            ciclos = list(nx.cycle_basis(self.G))
+            # Convertir ciclos no dirigidos a formato con retorno al inicio
+            ciclos = [c + [c[0]] for c in ciclos if len(c) > 1]
+
+        if ciclos:
+            self.text_resultados.insert(tk.END, "\n● Ciclos detectados:\n")
+            for i, ciclo in enumerate(ciclos, 1):
+                ciclo_str = ' → '.join(map(str, ciclo))
+                self.text_resultados.insert(tk.END, f"   - Ciclo {i}: {ciclo_str}\n")
+        else:
+            self.text_resultados.insert(tk.END, "\n● Ciclos detectados: Ninguno\n")
+
+        # Nodos adyacentes para cada nodo
+        self.text_resultados.insert(tk.END, "\n● Nodos adyacentes:\n")
+        for nodo in sorted(self.G.nodes):
+            adyacentes = list(self.G.neighbors(nodo))
+            if adyacentes:
+                ady_str = ', '.join(map(str, sorted(adyacentes)))
+                self.text_resultados.insert(tk.END, f"   - Nodo {nodo}: {ady_str}\n")
             else:
-                camino_str = ' → '.join(map(str, path))
-                self.text_resultados.insert(tk.END, f"  Nodo {nodo}: {camino_str}\n")
+                self.text_resultados.insert(tk.END, f"   - Nodo {nodo}: Ninguno\n")
+
+
     
     def procesar_grafo(self):
         matriz = self.obtener_matriz()
