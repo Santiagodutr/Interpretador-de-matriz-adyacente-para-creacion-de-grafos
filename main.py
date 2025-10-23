@@ -16,6 +16,10 @@ class GrafoApp:
         self.es_dirigido = tk.BooleanVar(value=False)
         self.entries = []
         self.G = None
+        self.pos = None  # Guardar posiciones de los nodos
+        self.nodo_origen = tk.StringVar()
+        self.nodo_destino = tk.StringVar()
+        self.camino_actual = []  # Almacenar el camino actual
         
         # Crear interfaz
         self.crear_interfaz()
@@ -43,6 +47,26 @@ class GrafoApp:
         # Botón limpiar
         ttk.Button(frame_control, text="Limpiar Matriz", 
                   command=self.limpiar_matriz).pack(side=tk.LEFT, padx=5)
+        
+        # Frame para selección de camino más corto
+        frame_camino = ttk.LabelFrame(frame_control, text="Camino Más Corto", padding="5")
+        frame_camino.pack(side=tk.LEFT, padx=20)
+        
+        ttk.Label(frame_camino, text="Origen:").pack(side=tk.LEFT, padx=2)
+        self.combo_origen = ttk.Combobox(frame_camino, textvariable=self.nodo_origen, 
+                                         width=5, state='readonly')
+        self.combo_origen.pack(side=tk.LEFT, padx=2)
+        
+        ttk.Label(frame_camino, text="Destino:").pack(side=tk.LEFT, padx=2)
+        self.combo_destino = ttk.Combobox(frame_camino, textvariable=self.nodo_destino, 
+                                          width=5, state='readonly')
+        self.combo_destino.pack(side=tk.LEFT, padx=2)
+        
+        ttk.Button(frame_camino, text="Mostrar Camino", 
+                  command=self.mostrar_camino_mas_corto).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Button(frame_camino, text="Limpiar Camino", 
+                  command=self.limpiar_camino).pack(side=tk.LEFT, padx=2)
         
         # Frame principal dividido
         frame_principal = ttk.Frame(self.root)
@@ -165,7 +189,7 @@ class GrafoApp:
             messagebox.showerror("Error", f"Error en la matriz: {e}")
             return None
     
-    def graficar_grafo(self, matriz):
+    def graficar_grafo(self, matriz, destacar_camino=None):
         self.ax.clear()
         
         if self.es_dirigido.get():
@@ -187,7 +211,37 @@ class GrafoApp:
             self.canvas_grafo.draw()
             return
         
-        pos = nx.spring_layout(self.G, seed=42)
+        # Guardar las posiciones para mantener consistencia
+        if self.pos is None:
+            self.pos = nx.spring_layout(self.G, seed=42)
+        
+        pos = self.pos
+        
+        # Actualizar los comboboxes con los nodos disponibles
+        nodos_disponibles = [str(n) for n in sorted(self.G.nodes)]
+        self.combo_origen['values'] = nodos_disponibles
+        self.combo_destino['values'] = nodos_disponibles
+        if nodos_disponibles:
+            if not self.nodo_origen.get() or self.nodo_origen.get() not in nodos_disponibles:
+                self.combo_origen.set(nodos_disponibles[0])
+            if not self.nodo_destino.get() or self.nodo_destino.get() not in nodos_disponibles:
+                self.combo_destino.set(nodos_disponibles[-1] if len(nodos_disponibles) > 1 else nodos_disponibles[0])
+        
+        # Preparar aristas del camino más corto si se proporciona
+        aristas_camino = set()
+        if destacar_camino:
+            for i in range(len(destacar_camino) - 1):
+                u, v = destacar_camino[i], destacar_camino[i + 1]
+                # Para grafos dirigidos, solo agregamos la dirección exacta del camino
+                aristas_camino.add((u, v))
+                # Para grafos no dirigidos, también agregamos la inversa
+                if not self.es_dirigido.get():
+                    aristas_camino.add((v, u))
+            
+            # Agregar bucles (self-loops) de los nodos que están en el camino
+            for nodo in destacar_camino:
+                if self.G.has_edge(nodo, nodo):  # Si el nodo tiene un bucle
+                    aristas_camino.add((nodo, nodo))
         
         # Configurar flechas solo para grafos dirigidos
         if self.es_dirigido.get():
@@ -201,17 +255,48 @@ class GrafoApp:
             aristas_simples = []
             aristas_bidireccionales = []
             bucles = []
+            aristas_simples_camino = []
+            aristas_bidireccionales_camino = []
+            bucles_camino = []
+            
+            # Rastrear qué aristas bidireccionales ya procesamos
+            procesadas = set()
             
             for (u, v, data) in self.G.edges(data=True):
                 if u == v:  # Bucle (self-loop)
-                    bucles.append((u, v))
-                elif self.G.has_edge(v, u) and u < v:  # Bidireccional
-                    aristas_bidireccionales.append((u, v))
-                    aristas_bidireccionales.append((v, u))
-                elif not self.G.has_edge(v, u):  # Simple
-                    aristas_simples.append((u, v))
+                    if (u, v) in aristas_camino:
+                        bucles_camino.append((u, v))
+                    else:
+                        bucles.append((u, v))
+                elif self.G.has_edge(v, u):  # Bidireccional (existe arista en ambas direcciones)
+                    # Evitar procesar la misma arista bidireccional dos veces
+                    if (v, u) in procesadas:
+                        continue
+                    procesadas.add((u, v))
+                    
+                    # Verificar si cada dirección está en el camino
+                    u_a_v_en_camino = (u, v) in aristas_camino
+                    v_a_u_en_camino = (v, u) in aristas_camino
+                    
+                    # Dibujar dirección u -> v
+                    if u_a_v_en_camino:
+                        aristas_bidireccionales_camino.append((u, v))
+                    else:
+                        aristas_bidireccionales.append((u, v))
+                    
+                    # Dibujar dirección v -> u
+                    if v_a_u_en_camino:
+                        aristas_bidireccionales_camino.append((v, u))
+                    else:
+                        aristas_bidireccionales.append((v, u))
+                        
+                else:  # Simple (solo existe en una dirección)
+                    if (u, v) in aristas_camino:
+                        aristas_simples_camino.append((u, v))
+                    else:
+                        aristas_simples.append((u, v))
             
-            # Dibujar aristas simples (sin curva)
+            # Dibujar aristas simples normales (sin curva)
             if aristas_simples:
                 nx.draw_networkx_edges(self.G, pos, ax=self.ax,
                                       edgelist=aristas_simples,
@@ -219,9 +304,21 @@ class GrafoApp:
                                       arrows=True,
                                       arrowsize=20,
                                       arrowstyle='->',
-                                      connectionstyle='arc3,rad=0')
+                                      connectionstyle='arc3,rad=0',
+                                      width=1.5)
             
-            # Dibujar aristas bidireccionales (con curva)
+            # Dibujar aristas simples del camino (sin curva)
+            if aristas_simples_camino:
+                nx.draw_networkx_edges(self.G, pos, ax=self.ax,
+                                      edgelist=aristas_simples_camino,
+                                      edge_color='red',
+                                      arrows=True,
+                                      arrowsize=25,
+                                      arrowstyle='->',
+                                      connectionstyle='arc3,rad=0',
+                                      width=3.5)
+            
+            # Dibujar aristas bidireccionales normales (con curva)
             if aristas_bidireccionales:
                 nx.draw_networkx_edges(self.G, pos, ax=self.ax,
                                       edgelist=aristas_bidireccionales,
@@ -229,9 +326,21 @@ class GrafoApp:
                                       arrows=True,
                                       arrowsize=20,
                                       arrowstyle='->',
-                                      connectionstyle='arc3,rad=0.3')
+                                      connectionstyle='arc3,rad=0.3',
+                                      width=1.5)
             
-            # Dibujar bucles (self-loops)
+            # Dibujar aristas bidireccionales del camino (con curva)
+            if aristas_bidireccionales_camino:
+                nx.draw_networkx_edges(self.G, pos, ax=self.ax,
+                                      edgelist=aristas_bidireccionales_camino,
+                                      edge_color='red',
+                                      arrows=True,
+                                      arrowsize=25,
+                                      arrowstyle='->',
+                                      connectionstyle='arc3,rad=0.3',
+                                      width=3.5)
+            
+            # Dibujar bucles normales (self-loops)
             if bucles:
                 nx.draw_networkx_edges(self.G, pos, ax=self.ax,
                                       edgelist=bucles,
@@ -241,7 +350,21 @@ class GrafoApp:
                                       arrowstyle='->',
                                       connectionstyle='arc3,rad=2.5',
                                       min_source_margin=15,
-                                      min_target_margin=15)
+                                      min_target_margin=15,
+                                      width=1.5)
+            
+            # Dibujar bucles del camino (self-loops)
+            if bucles_camino:
+                nx.draw_networkx_edges(self.G, pos, ax=self.ax,
+                                      edgelist=bucles_camino,
+                                      edge_color='red',
+                                      arrows=True,
+                                      arrowsize=25,
+                                      arrowstyle='->',
+                                      connectionstyle='arc3,rad=2.5',
+                                      min_source_margin=15,
+                                      min_target_margin=15,
+                                      width=3.5)
             
             # Dibujar etiquetas de pesos con posiciones ajustadas
             edge_labels = nx.get_edge_attributes(self.G, 'weight')
@@ -281,25 +404,74 @@ class GrafoApp:
             # Dibujar etiquetas
             for edge, weight in edge_labels.items():
                 x, y = label_pos[edge]
+                es_camino = edge in aristas_camino
                 self.ax.text(x, y, str(weight), 
-                           fontsize=9, 
+                           fontsize=10 if es_camino else 9, 
                            ha='center', 
                            va='center',
+                           fontweight='bold' if es_camino else 'normal',
                            bbox=dict(boxstyle="round,pad=0.3", 
-                                   facecolor='white', 
-                                   edgecolor='none', 
-                                   alpha=0.8))
+                                   facecolor='yellow' if es_camino else 'white', 
+                                   edgecolor='red' if es_camino else 'none', 
+                                   alpha=0.9 if es_camino else 0.8))
         else:
-            nx.draw(self.G, pos, ax=self.ax, with_labels=True, 
-                   node_color='lightcoral', node_size=600, 
-                   font_size=12, font_weight='bold', arrows=False,
-                   edge_color='gray')
+            # Separar aristas normales y del camino
+            aristas_normales = [(u, v) for u, v in self.G.edges() if (u, v) not in aristas_camino and (v, u) not in aristas_camino]
+            aristas_destacadas = [(u, v) for u, v in self.G.edges() if (u, v) in aristas_camino or (v, u) in aristas_camino]
+            
+            # Dibujar nodos
+            nx.draw_networkx_nodes(self.G, pos, ax=self.ax, 
+                                  node_color='lightcoral', node_size=600)
+            nx.draw_networkx_labels(self.G, pos, ax=self.ax, 
+                                   font_size=12, font_weight='bold')
+            
+            # Dibujar aristas normales
+            if aristas_normales:
+                nx.draw_networkx_edges(self.G, pos, ax=self.ax,
+                                      edgelist=aristas_normales,
+                                      edge_color='gray',
+                                      width=1.5)
+            
+            # Dibujar aristas del camino más corto
+            if aristas_destacadas:
+                nx.draw_networkx_edges(self.G, pos, ax=self.ax,
+                                      edgelist=aristas_destacadas,
+                                      edge_color='red',
+                                      width=3.5)
             
             edge_labels = nx.get_edge_attributes(self.G, 'weight')
-            nx.draw_networkx_edge_labels(self.G, pos, edge_labels=edge_labels, ax=self.ax)
+            
+            # Dibujar etiquetas con estilo diferente para el camino
+            for edge, weight in edge_labels.items():
+                es_camino = edge in aristas_camino or (edge[1], edge[0]) in aristas_camino
+                x = (pos[edge[0]][0] + pos[edge[1]][0]) / 2
+                y = (pos[edge[0]][1] + pos[edge[1]][1]) / 2
+                self.ax.text(x, y, str(weight), 
+                           fontsize=10 if es_camino else 9,
+                           ha='center', 
+                           va='center',
+                           fontweight='bold' if es_camino else 'normal',
+                           bbox=dict(boxstyle="round,pad=0.3", 
+                                   facecolor='yellow' if es_camino else 'white', 
+                                   edgecolor='red' if es_camino else 'gray',
+                                   linewidth=2 if es_camino else 0,
+                                   alpha=0.9 if es_camino else 0.8))
         
         titulo = "Grafo Dirigido" if self.es_dirigido.get() else "Grafo No Dirigido"
-        self.ax.set_title(titulo, fontsize=12, fontweight='bold')
+        if destacar_camino:
+            # Calcular distancia total del camino
+            if len(destacar_camino) == 1:
+                # Si el camino es un solo nodo, verificar si tiene bucle
+                nodo = destacar_camino[0]
+                if self.G.has_edge(nodo, nodo):
+                    distancia = self.G[nodo][nodo]['weight']
+                else:
+                    distancia = 0
+            else:
+                distancia = sum(self.G[destacar_camino[i]][destacar_camino[i+1]]['weight'] 
+                              for i in range(len(destacar_camino) - 1))
+            titulo += f" - Camino más corto: {' → '.join(map(str, destacar_camino))} (Distancia: {distancia})"
+        self.ax.set_title(titulo, fontsize=11, fontweight='bold')
         self.ax.axis('off')
         
         self.canvas_grafo.draw()
@@ -406,12 +578,93 @@ class GrafoApp:
             else:
                 self.text_resultados.insert(tk.END, f"   - Nodo {nodo}: Ninguno\n")
 
+    def reconstruir_camino(self, previos, inicio, destino):
+        """Reconstruye el camino desde inicio hasta destino usando el diccionario de previos"""
+        if previos[destino] is None and inicio != destino:
+            return None  # No hay camino
+        
+        camino = []
+        actual = destino
+        while actual is not None:
+            camino.append(actual)
+            actual = previos[actual]
+        camino.reverse()
+        return camino
+    
+    def mostrar_camino_mas_corto(self):
+        """Calcula y muestra el camino más corto entre dos nodos seleccionados"""
+        if self.G is None or len(self.G.nodes) == 0:
+            messagebox.showwarning("Advertencia", "Primero debe procesar un grafo")
+            return
+        
+        try:
+            origen = int(self.nodo_origen.get())
+            destino = int(self.nodo_destino.get())
+        except ValueError:
+            messagebox.showerror("Error", "Seleccione nodos válidos")
+            return
+        
+        if origen not in self.G.nodes or destino not in self.G.nodes:
+            messagebox.showerror("Error", "Los nodos seleccionados no existen en el grafo")
+            return
+        
+        # Calcular camino más corto usando Dijkstra
+        distancias, previos = self.dijkstra(origen)
+        
+        if distancias[destino] == float('inf'):
+            messagebox.showinfo("Información", 
+                              f"No existe un camino desde el nodo {origen} hasta el nodo {destino}")
+            return
+        
+        # Reconstruir el camino
+        self.camino_actual = self.reconstruir_camino(previos, origen, destino)
+        
+        # Redibujar el grafo con el camino destacado
+        matriz = self.obtener_matriz()
+        if matriz is not None:
+            self.graficar_grafo(matriz, destacar_camino=self.camino_actual)
+        
+        # Calcular la distancia total del camino
+        if origen == destino:
+            # Si origen y destino son el mismo nodo
+            if self.G.has_edge(origen, origen):
+                distancia_total = self.G[origen][origen]['weight']
+            else:
+                distancia_total = 0
+        else:
+            distancia_total = distancias[destino]
+        
+        camino_str = ' → '.join(map(str, self.camino_actual))
+        
+        mensaje = f"\n{'═' * 45}\n"
+        mensaje += f"CAMINO MÁS CORTO:\n"
+        mensaje += f"{'═' * 45}\n"
+        mensaje += f"Origen: {origen}\n"
+        mensaje += f"Destino: {destino}\n"
+        mensaje += f"Camino: {camino_str}\n"
+        mensaje += f"Distancia total: {distancia_total}\n"
+        mensaje += f"{'═' * 45}\n"
+        
+        self.text_resultados.insert(tk.END, mensaje)
+        self.text_resultados.see(tk.END)
+    
+    def limpiar_camino(self):
+        """Limpia el camino destacado y vuelve a mostrar el grafo normal"""
+        self.camino_actual = []
+        matriz = self.obtener_matriz()
+        if matriz is not None:
+            self.graficar_grafo(matriz)
+
 
     
     def procesar_grafo(self):
         matriz = self.obtener_matriz()
         if matriz is None:
             return
+        
+        # Resetear posiciones y camino al procesar un nuevo grafo
+        self.pos = None
+        self.camino_actual = []
         
         self.graficar_grafo(matriz)
         
