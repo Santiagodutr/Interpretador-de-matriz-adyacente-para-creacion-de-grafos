@@ -20,6 +20,7 @@ class GrafoApp:
         self.nodo_origen = tk.StringVar()
         self.nodo_destino = tk.StringVar()
         self.camino_actual = []  # Almacenar el camino actual
+        self.algoritmo = tk.StringVar(value="Dijkstra")
         
         # Crear interfaz
         self.crear_interfaz()
@@ -38,7 +39,14 @@ class GrafoApp:
         
         # Checkbox para grafo dirigido
         ttk.Checkbutton(frame_control, text="Grafo Dirigido", 
-                       variable=self.es_dirigido).pack(side=tk.LEFT, padx=20)
+                        variable=self.es_dirigido).pack(side=tk.LEFT, padx=20)
+        
+        # Selección de algoritmo
+        ttk.Label(frame_control, text="Algoritmo:").pack(side=tk.LEFT, padx=5)
+        self.combo_algoritmo = ttk.Combobox(frame_control, textvariable=self.algoritmo,
+                                            values=("Dijkstra", "Bellman-Ford"),
+                                            state='readonly', width=15)
+        self.combo_algoritmo.pack(side=tk.LEFT, padx=5)
         
         # Botón procesar
         ttk.Button(frame_control, text="Procesar Grafo", 
@@ -110,26 +118,28 @@ class GrafoApp:
         self.canvas_grafo.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         
         # Frame para resultados
-        frame_resultados = ttk.LabelFrame(frame_derecho, text="Resultados - Algoritmo de Dijkstra", padding="5")
-        frame_resultados.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=5)
+        self.frame_resultados = ttk.LabelFrame(frame_derecho, text="Resultados - Caminos más cortos", padding="5")
+        self.frame_resultados.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=5)
         
         # Text widget con scrollbar para resultados
-        scrollbar_resultados = ttk.Scrollbar(frame_resultados)
+        scrollbar_resultados = ttk.Scrollbar(self.frame_resultados)
         scrollbar_resultados.pack(side=tk.RIGHT, fill=tk.Y)
         
-        self.text_resultados = tk.Text(frame_resultados, height=10, width=50, 
+        self.text_resultados = tk.Text(self.frame_resultados, height=10, width=50, 
                                        yscrollcommand=scrollbar_resultados.set,
                                        font=('Courier', 9))
         self.text_resultados.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar_resultados.config(command=self.text_resultados.yview)
     
     def validar_numero(self, texto):
-        """Valida que el texto sea un número entero no negativo o vacío"""
-        if texto == "":
+        """Valida que el texto sea un número entero (positivo, negativo) o vacío"""
+        if texto in ("", "-"):
             return True
-        if texto.isdigit():
+        try:
+            int(texto)
             return True
-        return False
+        except ValueError:
+            return False
     
     def crear_tabla(self):
         # Limpiar tabla anterior
@@ -181,15 +191,32 @@ class GrafoApp:
             for i in range(n):
                 for j in range(n):
                     valor = int(self.entries[i][j].get())
-                    if valor < 0:
-                        raise ValueError("Los pesos deben ser >= 0")
                     matriz[i, j] = valor
             return matriz
         except ValueError as e:
             messagebox.showerror("Error", f"Error en la matriz: {e}")
             return None
+
+    def calcular_rutas_minimas(self, inicio):
+        """Calcula las distancias mínimas según el algoritmo seleccionado"""
+        algoritmo = self.algoritmo.get()
+        if algoritmo == "Dijkstra":
+            distancias, previos = self.dijkstra(inicio)
+            return algoritmo, distancias, previos
+        elif algoritmo == "Bellman-Ford":
+            distancias, previos, ciclo_negativo = self.bellman_ford(inicio)
+            if ciclo_negativo:
+                messagebox.showerror(
+                    "Error",
+                    "El grafo contiene un ciclo de peso negativo. Bellman-Ford no puede calcular distancias mínimas en este caso."
+                )
+                return None
+            return algoritmo, distancias, previos
+        else:
+            messagebox.showerror("Error", f"Algoritmo desconocido: {algoritmo}")
+            return None
     
-    def graficar_grafo(self, matriz, destacar_camino=None):
+    def graficar_grafo(self, matriz, destacar_camino=None, bucles_destacados=None):
         self.ax.clear()
         
         if self.es_dirigido.get():
@@ -227,6 +254,8 @@ class GrafoApp:
             if not self.nodo_destino.get() or self.nodo_destino.get() not in nodos_disponibles:
                 self.combo_destino.set(nodos_disponibles[-1] if len(nodos_disponibles) > 1 else nodos_disponibles[0])
         
+        bucles_destacados = set() if bucles_destacados is None else set(bucles_destacados)
+
         # Preparar aristas del camino más corto si se proporciona
         aristas_camino = set()
         if destacar_camino:
@@ -237,11 +266,6 @@ class GrafoApp:
                 # Para grafos no dirigidos, también agregamos la inversa
                 if not self.es_dirigido.get():
                     aristas_camino.add((v, u))
-            
-            # Agregar bucles (self-loops) de los nodos que están en el camino
-            for nodo in destacar_camino:
-                if self.G.has_edge(nodo, nodo):  # Si el nodo tiene un bucle
-                    aristas_camino.add((nodo, nodo))
         
         # Configurar flechas solo para grafos dirigidos
         if self.es_dirigido.get():
@@ -264,7 +288,7 @@ class GrafoApp:
             
             for (u, v, data) in self.G.edges(data=True):
                 if u == v:  # Bucle (self-loop)
-                    if (u, v) in aristas_camino:
+                    if (u, v) in aristas_camino or u in bucles_destacados:
                         bucles_camino.append((u, v))
                     else:
                         bucles.append((u, v))
@@ -404,7 +428,7 @@ class GrafoApp:
             # Dibujar etiquetas
             for edge, weight in edge_labels.items():
                 x, y = label_pos[edge]
-                es_camino = edge in aristas_camino
+                es_camino = edge in aristas_camino or (edge[0] == edge[1] and edge[0] in bucles_destacados)
                 self.ax.text(x, y, str(weight), 
                            fontsize=10 if es_camino else 9, 
                            ha='center', 
@@ -415,9 +439,21 @@ class GrafoApp:
                                    edgecolor='red' if es_camino else 'none', 
                                    alpha=0.9 if es_camino else 0.8))
         else:
-            # Separar aristas normales y del camino
-            aristas_normales = [(u, v) for u, v in self.G.edges() if (u, v) not in aristas_camino and (v, u) not in aristas_camino]
-            aristas_destacadas = [(u, v) for u, v in self.G.edges() if (u, v) in aristas_camino or (v, u) in aristas_camino]
+            # Separar aristas normales, destacadas y bucles
+            aristas_normales = []
+            aristas_destacadas = []
+            bucles_normales = []
+            bucles_destacados_und = []
+            for u, v in self.G.edges():
+                if u == v:
+                    if (u, v) in aristas_camino or (v, u) in aristas_camino or u in bucles_destacados:
+                        bucles_destacados_und.append((u, v))
+                    else:
+                        bucles_normales.append((u, v))
+                elif (u, v) in aristas_camino or (v, u) in aristas_camino:
+                    aristas_destacadas.append((u, v))
+                else:
+                    aristas_normales.append((u, v))
             
             # Dibujar nodos
             nx.draw_networkx_nodes(self.G, pos, ax=self.ax, 
@@ -439,13 +475,28 @@ class GrafoApp:
                                       edge_color='red',
                                       width=3.5)
             
+            if bucles_normales:
+                nx.draw_networkx_edges(self.G, pos, ax=self.ax,
+                                      edgelist=bucles_normales,
+                                      edge_color='gray',
+                                      width=1.5,
+                                      connectionstyle='arc3,rad=0.2')
+
+            if bucles_destacados_und:
+                nx.draw_networkx_edges(self.G, pos, ax=self.ax,
+                                      edgelist=bucles_destacados_und,
+                                      edge_color='red',
+                                      width=3.5,
+                                      connectionstyle='arc3,rad=0.2')
+
             edge_labels = nx.get_edge_attributes(self.G, 'weight')
             
-            # Dibujar etiquetas con estilo diferente para el camino
+            # Dibujar etiquetas con estilo diferente para el camino y bucles destacados
             for edge, weight in edge_labels.items():
-                es_camino = edge in aristas_camino or (edge[1], edge[0]) in aristas_camino
-                x = (pos[edge[0]][0] + pos[edge[1]][0]) / 2
-                y = (pos[edge[0]][1] + pos[edge[1]][1]) / 2
+                u, v = edge
+                es_camino = edge in aristas_camino or (v, u) in aristas_camino or (u == v and u in bucles_destacados)
+                x = (pos[u][0] + pos[v][0]) / 2
+                y = (pos[u][1] + pos[v][1]) / 2
                 self.ax.text(x, y, str(weight), 
                            fontsize=10 if es_camino else 9,
                            ha='center', 
@@ -499,29 +550,57 @@ class GrafoApp:
                     previos[vecino] = actual
         
         return distancias, previos
+
+    def bellman_ford(self, inicio):
+        if self.G is None or len(self.G.nodes) == 0:
+            return None, None, False
+        
+        distancias = {nodo: float('inf') for nodo in self.G.nodes}
+        distancias[inicio] = 0
+        previos = {nodo: None for nodo in self.G.nodes}
+        aristas = [(u, v, data['weight']) for u, v, data in self.G.edges(data=True)]
+        num_nodos = len(self.G.nodes)
+        
+        for _ in range(num_nodos - 1):
+            actualizado = False
+            for u, v, peso in aristas:
+                if distancias[u] != float('inf') and distancias[u] + peso < distancias[v]:
+                    distancias[v] = distancias[u] + peso
+                    previos[v] = u
+                    actualizado = True
+            if not actualizado:
+                break
+        
+        # Verificar ciclos negativos
+        for u, v, peso in aristas:
+            if distancias[u] != float('inf') and distancias[u] + peso < distancias[v]:
+                return distancias, previos, True
+        
+        return distancias, previos, False
     
-    def mostrar_resultados(self, distancias, previos, inicio):
+    def mostrar_resultados(self, distancias, previos, inicio, algoritmo):
         self.text_resultados.delete(1.0, tk.END)
-        
-        
+        self.frame_resultados.configure(text=f"Resultados - Algoritmo {algoritmo}")
+
         if distancias is None:
             self.text_resultados.insert(tk.END, "No hay nodos en el grafo\n")
             return
-        
 
-                # Representación matemática del grafo
+        # Representación matemática del grafo
         nodos = sorted(self.G.nodes)
         aristas = sorted(self.G.edges)
 
         representacion = "V = { " + ', '.join(str(n) for n in nodos) + " }\n"
         representacion += "A = { " + ', '.join(f"({u},{v})" for u, v in aristas) + " }\n\n"
-
         self.text_resultados.insert(tk.END, representacion)
 
-        self.text_resultados.insert(tk.END, f"╔═══════════════════════════════════════════╗\n")
-        self.text_resultados.insert(tk.END, f"║  ALGORITMO DE DIJKSTRA - Nodo inicial: {inicio}  ║\n")
-        self.text_resultados.insert(tk.END, f"╚═══════════════════════════════════════════╝\n\n")
-        
+        self.text_resultados.insert(tk.END, "╔═══════════════════════════════════════════╗\n")
+        self.text_resultados.insert(
+            tk.END,
+            f"║  ALGORITMO DE {algoritmo.upper()} - Nodo inicial: {inicio}  ║\n"
+        )
+        self.text_resultados.insert(tk.END, "╚═══════════════════════════════════════════╝\n\n")
+
         self.text_resultados.insert(tk.END, "DISTANCIAS MÍNIMAS:\n")
         self.text_resultados.insert(tk.END, "─" * 45 + "\n")
         for nodo in sorted(distancias.keys()):
@@ -530,14 +609,13 @@ class GrafoApp:
                 self.text_resultados.insert(tk.END, f"  Nodo {nodo}: ∞ (No alcanzable)\n")
             else:
                 self.text_resultados.insert(tk.END, f"  Nodo {nodo}: {distancia}\n")
-        
-                # Evidencias del concepto de camino, ciclo y nodos adyacentes
+
+        # Evidencias del concepto de camino, ciclo y nodos adyacentes
         self.text_resultados.insert(tk.END, "\n" + "═" * 45 + "\n")
         self.text_resultados.insert(tk.END, "EVIDENCIAS DE CONCEPTOS:\n")
         self.text_resultados.insert(tk.END, "═" * 45 + "\n")
 
-        # Caminos desde el nodo inicial
-        self.text_resultados.insert(tk.END, "● Caminos desde el nodo inicial (0):\n")
+        self.text_resultados.insert(tk.END, f"● Caminos desde el nodo inicial ({inicio}):\n")
         for destino in sorted(distancias.keys()):
             if destino != inicio:
                 if distancias[destino] < float('inf'):
@@ -552,12 +630,10 @@ class GrafoApp:
                 else:
                     self.text_resultados.insert(tk.END, f"   - A {destino}: No alcanzable\n")
 
-        # Ciclos en el grafo
         if self.es_dirigido.get():
             ciclos = list(nx.simple_cycles(self.G))
         else:
             ciclos = list(nx.cycle_basis(self.G))
-            # Convertir ciclos no dirigidos a formato con retorno al inicio
             ciclos = [c + [c[0]] for c in ciclos if len(c) > 1]
 
         if ciclos:
@@ -568,7 +644,6 @@ class GrafoApp:
         else:
             self.text_resultados.insert(tk.END, "\n● Ciclos detectados: Ninguno\n")
 
-        # Nodos adyacentes para cada nodo
         self.text_resultados.insert(tk.END, "\n● Nodos adyacentes:\n")
         for nodo in sorted(self.G.nodes):
             adyacentes = list(self.G.neighbors(nodo))
@@ -608,25 +683,46 @@ class GrafoApp:
             messagebox.showerror("Error", "Los nodos seleccionados no existen en el grafo")
             return
         
-        # Calcular camino más corto usando Dijkstra
-        distancias, previos = self.dijkstra(origen)
-        
-        if distancias[destino] == float('inf'):
-            messagebox.showinfo("Información", 
-                              f"No existe un camino desde el nodo {origen} hasta el nodo {destino}")
-            return
-        
-        # Reconstruir el camino
-        self.camino_actual = self.reconstruir_camino(previos, origen, destino)
-        
-        # Redibujar el grafo con el camino destacado
         matriz = self.obtener_matriz()
-        if matriz is not None:
-            self.graficar_grafo(matriz, destacar_camino=self.camino_actual)
-        
+        if matriz is None:
+            return
+
+        algoritmo_seleccionado = self.algoritmo.get()
+        if algoritmo_seleccionado == "Dijkstra" and np.any(matriz < 0):
+            messagebox.showerror(
+                "Error",
+                "Dijkstra no admite pesos negativos. Seleccione Bellman-Ford o elimine los pesos negativos."
+            )
+            return
+
+        resultado = self.calcular_rutas_minimas(origen)
+        if resultado is None:
+            return
+        algoritmo_usado, distancias, previos = resultado
+        if distancias is None or distancias[destino] == float('inf'):
+            messagebox.showinfo(
+                "Información",
+                f"No existe un camino desde el nodo {origen} hasta el nodo {destino}"
+            )
+            return
+
+        self.camino_actual = self.reconstruir_camino(previos, origen, destino)
+        if not self.camino_actual:
+            messagebox.showinfo(
+                "Información",
+                f"No existe un camino desde el nodo {origen} hasta el nodo {destino}"
+            )
+            return
+
+        bucles_resaltar = set()
+        if origen == destino and self.G.has_edge(origen, origen):
+            bucles_resaltar.add(origen)
+
+        # Redibujar el grafo con el camino destacado
+        self.graficar_grafo(matriz, destacar_camino=self.camino_actual, bucles_destacados=bucles_resaltar)
+
         # Calcular la distancia total del camino
         if origen == destino:
-            # Si origen y destino son el mismo nodo
             if self.G.has_edge(origen, origen):
                 distancia_total = self.G[origen][origen]['weight']
             else:
@@ -641,6 +737,7 @@ class GrafoApp:
         mensaje += f"{'═' * 45}\n"
         mensaje += f"Origen: {origen}\n"
         mensaje += f"Destino: {destino}\n"
+        mensaje += f"Algoritmo: {algoritmo_usado}\n"
         mensaje += f"Camino: {camino_str}\n"
         mensaje += f"Distancia total: {distancia_total}\n"
         mensaje += f"{'═' * 45}\n"
@@ -662,6 +759,13 @@ class GrafoApp:
         if matriz is None:
             return
         
+        if self.algoritmo.get() == "Dijkstra" and np.any(matriz < 0):
+            messagebox.showerror(
+                "Error",
+                "Dijkstra no admite pesos negativos. Seleccione Bellman-Ford o elimine los pesos negativos."
+            )
+            return
+        
         # Resetear posiciones y camino al procesar un nuevo grafo
         self.pos = None
         self.camino_actual = []
@@ -674,8 +778,11 @@ class GrafoApp:
             return
         
         inicio = 0  # Nodo inicial fijo
-        distancias, previos = self.dijkstra(inicio)
-        self.mostrar_resultados(distancias, previos, inicio)
+        resultado = self.calcular_rutas_minimas(inicio)
+        if resultado is None:
+            return
+        algoritmo, distancias, previos = resultado
+        self.mostrar_resultados(distancias, previos, inicio, algoritmo)
 
 def main():
     root = tk.Tk()
