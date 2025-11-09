@@ -132,14 +132,28 @@ class GrafoApp:
         scrollbar_resultados.config(command=self.text_resultados.yview)
     
     def validar_numero(self, texto):
-        """Valida que el texto sea un número entero (positivo, negativo) o vacío"""
-        if texto in ("", "-"):
+        """Valida que el texto sea un número entero.
+
+        Reglas:
+        - Si el algoritmo seleccionado es 'Bellman-Ford' se permiten números negativos (entrada puede ser '-' mientras el usuario escribe).
+        - Si el algoritmo seleccionado es 'Dijkstra' solo se permiten enteros no negativos.
+        - Se permite cadena vacía mientras se edita.
+        """
+        # Permitir vacío (edición intermedia)
+        if texto == "":
             return True
-        try:
-            int(texto)
-            return True
-        except ValueError:
-            return False
+
+        algoritmo = self.algoritmo.get() if hasattr(self, 'algoritmo') else 'Dijkstra'
+
+        if algoritmo == 'Bellman-Ford':
+            # Permitir '-' mientras el usuario escribe un número negativo
+            if texto == "-":
+                return True
+            # Permitir números con opcional signo negativo
+            return texto.lstrip('-').isdigit()
+        else:
+            # Dijkstra: solo enteros no negativos
+            return texto.isdigit()
     
     def crear_tabla(self):
         # Limpiar tabla anterior
